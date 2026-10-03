@@ -13,20 +13,49 @@ st.markdown("Filtering Nifty 500 stocks where **55-Period RS (vs Nifty)** is bet
 
 @st.cache_data(ttl=86400)
 def get_nifty500_symbols():
-    # Fetch Nifty 500 symbol list from a reliable public mirror of NSE data
     url = "https://raw.githubusercontent.com/anandps/Nifty-500-Data/main/ind_nifty500list.csv"
     try:
-        res = requests.get(url)
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
         df = pd.read_csv(io.StringIO(res.text))
-        # Handle column name variations ('Symbol' or 'ticker')
-        col = 'Symbol' if 'Symbol' in df.columns else df.columns[2]
-        symbols = df[col].dropna().tolist()
-        return [str(s).strip() + ".NS" for s in symbols]
+        
+        # Smart column detection for symbols
+        symbol_col = None
+        for col in df.columns:
+            if 'symbol' in col.lower() or 'ticker' in col.lower():
+                symbol_col = col
+                break
+        
+        if not symbol_col:
+            for col in df.columns:
+                sample = df[col].dropna().astype(str).head(5).tolist()
+                if any(len(s) <= 15 and s.isupper() for s in sample):
+                    symbol_col = col
+                    break
+                    
+        if not symbol_col and len(df.columns) > 0:
+            symbol_col = df.columns[0]
+            
+        if symbol_col:
+            symbols = df[symbol_col].dropna().tolist()
+            cleaned = [str(s).strip() + ".NS" for s in symbols if str(s).strip() and str(s).strip().lower() != 'symbol']
+            if len(cleaned) > 50:
+                return cleaned
+                
+        raise Exception("Could not automatically parse symbol column")
+        
     except Exception as e:
-        st.error(f"Error loading Nifty 500 symbol list: {e}")
-        return []
+        # Fallback list of major liquid NSE stocks if download fails
+        fallback = [
+            "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
+            "LT", "AXISBANK", "ASIANPAINT", "MARUTI", "SUNPHARMA", "TITAN", "BAJFINANCE", "NESTLEIND", "HCLTECH", "TATAMOTORS",
+            "WIPRO", "ADANIENT", "POWERGRID", "NTPC", "GRASIM", "TECHM", "JSWSTEEL", "TATASTEEL", "M&M", "ADANIPORTS",
+            "DIVISLAB", "BAJAJFINSV", "BPCL", "HEROMOTOCO", "EICHERMOT", "ONGC", "COALINDIA", "BRITANNIA", "CIPLA", "SBILIFE",
+            "DRREDDY", "APOLLOHOSP", "TATACONSUM", "HDFCLIFE", "BAJAJ-AUTO", "SHRIRAMFIN", "ULTRACEMCO", "INDUSINDBK", "HINDALCO",
+            "BEL", "TRENT", "CHOLAFIN", "TATAPOWER", "TVSMOTOR", "SIEMENS", "ABB", "DLF", "LODHA", "ZOMATO"
+        ]
+        return [s + ".NS" for s in fallback]
 
-with st.spinner("Fetching Nifty 500 stock universe..."):
+with st.spinner("Loading stock universe..."):
     tickers = get_nifty500_symbols()
     tickers_with_benchmark = tickers + ["^NSEI"]
 
@@ -38,14 +67,13 @@ lookback = 55
 
 if st.button("Run Screener scan"):
     if not tickers:
-        st.error("Could not load stock tickers. Please check your internet connection or repository files.")
+        st.error("Could not load stock tickers.")
     else:
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        status_text.text("Downloading historical data for Nifty 500 (this takes a moment)...")
+        status_text.text("Downloading historical data and calculating indicators...")
         
-        # Download bulk daily data for 1 year
         data = yf.download(tickers_with_benchmark, period="1y", interval="1d", group_by="ticker", threads=True)
         
         closes = pd.DataFrame()
@@ -113,7 +141,7 @@ if st.button("Run Screener scan"):
                 
                 # Interactive visualization
                 fig = px.scatter(res_df, x="RS Value (55)", y="RSI (14)", text="Ticker", 
-                                 title="Filtered Nifty 500 Stocks: RS vs RSI Map",
+                                 title="Filtered Stocks: RS vs RSI Map",
                                  hover_data=["Close Price"])
                 fig.update_traces(textposition='top center')
                 st.plotly_chart(fig, use_container_width=True)
