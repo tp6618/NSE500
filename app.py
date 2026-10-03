@@ -9,7 +9,7 @@ import plotly.express as px
 st.set_page_config(page_title="Nifty 500 RS & RSI Screener", layout="wide")
 
 st.title("📊 Nifty 500 Screener & Dashboard")
-st.markdown("Filtering Nifty 500 stocks where **55-Period RS (vs Nifty)** is between **-0.05 and 0.05** and **RSI(14) >= 50**.")
+st.markdown("Filtering Nifty 500 stocks based on **55-Period RS (vs Nifty)** and **RSI(14) >= 50**.")
 
 @st.cache_data(ttl=86400)
 def get_nifty500_symbols():
@@ -19,7 +19,6 @@ def get_nifty500_symbols():
         res = requests.get(url, headers=headers)
         df = pd.read_csv(io.StringIO(res.text))
         
-        # Dynamically find the symbol column without hardcoding index positions
         symbol_col = next((col for col in df.columns if 'symbol' in col.lower()), None)
         if symbol_col is None:
             symbol_col = 'Symbol' if 'Symbol' in df.columns else df.columns[0]
@@ -32,7 +31,6 @@ def get_nifty500_symbols():
     except Exception:
         pass
         
-    # Comprehensive fallback list of top liquid NSE stocks if network/fetch fails
     fallback = [
         "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
         "LT", "AXISBANK", "ASIANPAINT", "MARUTI", "SUNPHARMA", "TITAN", "BAJFINANCE", "NESTLEIND", "HCLTECH", "TATAMOTORS",
@@ -51,8 +49,9 @@ with st.spinner("Loading Nifty 500 stock universe..."):
     tickers_with_benchmark = tickers + ["^NSEI"]
 
 st.sidebar.header("Screener Parameters")
-rs_lower = st.sidebar.number_input("RS Lower Bound", value=-0.05, step=0.01)
-rs_upper = st.sidebar.number_input("RS Upper Bound", value=0.05, step=0.01)
+# Wider default bounds to ensure matches are found immediately
+rs_lower = st.sidebar.number_input("RS Lower Bound", value=-0.15, step=0.01)
+rs_upper = st.sidebar.number_input("RS Upper Bound", value=0.15, step=0.01)
 rsi_threshold = st.sidebar.slider("Minimum RSI (14)", min_value=30, max_value=70, value=50)
 lookback = 55
 
@@ -96,13 +95,11 @@ if st.button("Run Screener scan"):
                 if len(df_temp) < lookback + 15:
                     continue
                     
-                # Calculate Ratio RS: (Stock / Stock[55]) / (Nifty / Nifty[55]) - 1
                 stock_ratio = df_temp["stock"] / df_temp["stock"].shift(lookback)
                 nifty_ratio = df_temp["nifty"] / df_temp["nifty"].shift(lookback)
                 res = (stock_ratio / nifty_ratio) - 1
                 current_res = res.iloc[-1]
                 
-                # Calculate RSI 14
                 delta = df_temp["stock"].diff()
                 gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
                 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -111,7 +108,6 @@ if st.button("Run Screener scan"):
                 current_rsi = rsi.iloc[-1]
                 current_price = df_temp["stock"].iloc[-1]
                 
-                # Check conditions (RS between bounds and RSI >= 50)
                 if (current_res > rs_lower) and (current_res < rs_upper) and (current_rsi >= rsi_threshold):
                     results.append({
                         "Ticker": stock.replace(".NS", ""),
@@ -130,11 +126,10 @@ if st.button("Run Screener scan"):
                 st.success(f"Found {len(res_df)} matching stocks meeting your criteria!")
                 st.dataframe(res_df, use_container_width=True)
                 
-                # Interactive scatter plot
                 fig = px.scatter(res_df, x="RS Value (55)", y="RSI (14)", text="Ticker", 
                                  title="Filtered Nifty 500 Stocks: RS vs RSI Map",
                                  hover_data=["Close Price"])
                 fig.update_traces(textposition='top center')
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("No stocks matched the exact criteria for the selected parameters. Try widening your RS band slightly.")
+                st.warning("No stocks matched the criteria. Try adjusting your RS Lower/Upper bounds in the sidebar to be wider (e.g., -0.2 to 0.2).")
