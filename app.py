@@ -13,49 +13,40 @@ st.markdown("Filtering Nifty 500 stocks where **55-Period RS (vs Nifty)** is bet
 
 @st.cache_data(ttl=86400)
 def get_nifty500_symbols():
-    url = "https://raw.githubusercontent.com/anandps/Nifty-500-Data/main/ind_nifty500list.csv"
+    url = "https://raw.githubusercontent.com/chaitanyarahalkar/Financial-Info-Extractor/master/ind_nifty500list.csv"
     try:
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
         df = pd.read_csv(io.StringIO(res.text))
         
-        # Smart column detection for symbols
-        symbol_col = None
-        for col in df.columns:
-            if 'symbol' in col.lower() or 'ticker' in col.lower():
-                symbol_col = col
-                break
-        
-        if not symbol_col:
-            for col in df.columns:
-                sample = df[col].dropna().astype(str).head(5).tolist()
-                if any(len(s) <= 15 and s.isupper() for s in sample):
-                    symbol_col = col
-                    break
-                    
-        if not symbol_col and len(df.columns) > 0:
-            symbol_col = df.columns[0]
+        # Dynamically find the symbol column without hardcoding index positions
+        symbol_col = next((col for col in df.columns if 'symbol' in col.lower()), None)
+        if symbol_col is None:
+            symbol_col = 'Symbol' if 'Symbol' in df.columns else df.columns[0]
             
-        if symbol_col:
-            symbols = df[symbol_col].dropna().tolist()
-            cleaned = [str(s).strip() + ".NS" for s in symbols if str(s).strip() and str(s).strip().lower() != 'symbol']
-            if len(cleaned) > 50:
-                return cleaned
-                
-        raise Exception("Could not automatically parse symbol column")
+        symbols = df[symbol_col].dropna().astype(str).tolist()
+        cleaned = [s.strip() + ".NS" for s in symbols if s.strip().upper() != 'SYMBOL' and len(s.strip()) > 0]
         
-    except Exception as e:
-        # Fallback list of major liquid NSE stocks if download fails
-        fallback = [
-            "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
-            "LT", "AXISBANK", "ASIANPAINT", "MARUTI", "SUNPHARMA", "TITAN", "BAJFINANCE", "NESTLEIND", "HCLTECH", "TATAMOTORS",
-            "WIPRO", "ADANIENT", "POWERGRID", "NTPC", "GRASIM", "TECHM", "JSWSTEEL", "TATASTEEL", "M&M", "ADANIPORTS",
-            "DIVISLAB", "BAJAJFINSV", "BPCL", "HEROMOTOCO", "EICHERMOT", "ONGC", "COALINDIA", "BRITANNIA", "CIPLA", "SBILIFE",
-            "DRREDDY", "APOLLOHOSP", "TATACONSUM", "HDFCLIFE", "BAJAJ-AUTO", "SHRIRAMFIN", "ULTRACEMCO", "INDUSINDBK", "HINDALCO",
-            "BEL", "TRENT", "CHOLAFIN", "TATAPOWER", "TVSMOTOR", "SIEMENS", "ABB", "DLF", "LODHA", "ZOMATO"
-        ]
-        return [s + ".NS" for s in fallback]
+        if len(cleaned) > 400:
+            return cleaned
+    except Exception:
+        pass
+        
+    # Comprehensive fallback list of top liquid NSE stocks if network/fetch fails
+    fallback = [
+        "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
+        "LT", "AXISBANK", "ASIANPAINT", "MARUTI", "SUNPHARMA", "TITAN", "BAJFINANCE", "NESTLEIND", "HCLTECH", "TATAMOTORS",
+        "WIPRO", "ADANIENT", "POWERGRID", "NTPC", "GRASIM", "TECHM", "JSWSTEEL", "TATASTEEL", "M&M", "ADANIPORTS",
+        "DIVISLAB", "BAJAJFINSV", "BPCL", "HEROMOTOCO", "EICHERMOT", "ONGC", "COALINDIA", "BRITANNIA", "CIPLA", "SBILIFE",
+        "DRREDDY", "APOLLOHOSP", "TATACONSUM", "HDFCLIFE", "BAJAJ-AUTO", "SHRIRAMFIN", "ULTRACEMCO", "INDUSINDBK", "HINDALCO",
+        "BEL", "TRENT", "CHOLAFIN", "TATAPOWER", "TVSMOTOR", "SIEMENS", "ABB", "DLF", "LODHA", "ZOMATO", "PNB", "BANKBARODA",
+        "CANBK", "IDFCFIRSTB", "FEDERALBNK", "AUBANK", "HINDPETRO", "IOC", "GAIL", "PETRONET", "MGL", "IGL", "TATATECH",
+        "PERSISTENT", "COFORGE", "LTIM", "MPHASIS", "OFSS", "KPITTECH", "NAUKRI", "ZENSARTECH", "CYIENT", "SONACOMS",
+        "MOTHERSON", "BHARATFORG", "ASHOKLEY", "BOSCHLTD", "TIINDIA", "MRF", "BALKRISIND", "APOLLOTYRE", "CEATLTD", "EXIDEIND"
+    ]
+    return [s + ".NS" for s in fallback]
 
-with st.spinner("Loading stock universe..."):
+with st.spinner("Loading Nifty 500 stock universe..."):
     tickers = get_nifty500_symbols()
     tickers_with_benchmark = tickers + ["^NSEI"]
 
@@ -120,7 +111,7 @@ if st.button("Run Screener scan"):
                 current_rsi = rsi.iloc[-1]
                 current_price = df_temp["stock"].iloc[-1]
                 
-                # Check conditions (RSI >= 50 and RS between bounds)
+                # Check conditions (RS between bounds and RSI >= 50)
                 if (current_res > rs_lower) and (current_res < rs_upper) and (current_rsi >= rsi_threshold):
                     results.append({
                         "Ticker": stock.replace(".NS", ""),
@@ -139,9 +130,9 @@ if st.button("Run Screener scan"):
                 st.success(f"Found {len(res_df)} matching stocks meeting your criteria!")
                 st.dataframe(res_df, use_container_width=True)
                 
-                # Interactive visualization
+                # Interactive scatter plot
                 fig = px.scatter(res_df, x="RS Value (55)", y="RSI (14)", text="Ticker", 
-                                 title="Filtered Stocks: RS vs RSI Map",
+                                 title="Filtered Nifty 500 Stocks: RS vs RSI Map",
                                  hover_data=["Close Price"])
                 fig.update_traces(textposition='top center')
                 st.plotly_chart(fig, use_container_width=True)
