@@ -8,7 +8,7 @@ import plotly.express as px
 st.set_page_config(page_title="Nifty 500 RS & RSI Screener", layout="wide")
 
 st.title("📊 Nifty 500 Screener & Dashboard")
-st.markdown("Filtering Nifty 500 stocks where **55-Period RS (vs Nifty)** is between **-0.05 and 0.05** and **RSI(14) > 50**.")
+st.markdown("Filtering Nifty 500 stocks where **55-Period RS (vs Nifty)** is between **-0.05 and 0.05** and **RSI(14) >= 50**.")
 
 @st.cache_data(ttl=3600)
 def get_nifty500_symbols():
@@ -18,7 +18,6 @@ def get_nifty500_symbols():
 
 with st.spinner("Fetching Nifty 500 stock universe..."):
     tickers = get_nifty500_symbols()
-    # Add Nifty 50 index benchmark
     tickers_with_benchmark = tickers + ["^NSEI"]
 
 st.sidebar.header("Screener Parameters")
@@ -33,17 +32,14 @@ if st.button("Run Screener scan"):
     
     status_text.text("Downloading historical data for Nifty 500 (this takes a moment)...")
     
-    # Download bulk daily data for 1 year to cover 55 periods comfortably
-    data = yf.download(tickers_with_benchmark, period="1y", interval="1id", group_by="ticker", threads=True)
+    # Download bulk daily data for 1 year
+    data = yf.download(tickers_with_benchmark, period="1y", interval="1d", group_by="ticker", threads=True)
     
     # Extract Close prices
     closes = pd.DataFrame()
     for ticker in tickers_with_benchmark:
         try:
-            if ticker == "^NSEI":
-                closes[ticker] = data[ticker]["Close"]
-            else:
-                closes[ticker] = data[ticker]["Close"]
+            closes[ticker] = data[ticker]["Close"]
         except Exception:
             continue
             
@@ -65,7 +61,6 @@ if st.button("Run Screener scan"):
             if len(s_close) < lookback + 15:
                 continue
                 
-            # Align dates with nifty
             df_temp = pd.DataFrame({"stock": s_close, "nifty": nifty_close}).dropna()
             if len(df_temp) < lookback + 15:
                 continue
@@ -80,13 +75,13 @@ if st.button("Run Screener scan"):
             delta = df_temp["stock"].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
+            rs_val = gain / loss
+            rsi = 100 - (100 / (1 + rs_val))
             current_rsi = rsi.iloc[-1]
             current_price = df_temp["stock"].iloc[-1]
             
-            # Check conditions
-            if (current_res > rs_lower) and (current_res < rs_upper) and (current_rsi > rsi_threshold):
+            # Check conditions (RSI >= 50 included via >= operator)
+            if (current_res > rs_lower) and (current_res < rs_upper) and (current_rsi >= rsi_threshold):
                 results.append({
                     "Ticker": stock.replace(".NS", ""),
                     "Close Price": round(current_price, 2),
